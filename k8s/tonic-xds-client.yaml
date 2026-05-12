@@ -1,0 +1,55 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: tonic-xds-client
+  namespace: xds-test
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: tonic-xds-client
+  namespace: xds-test
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: tonic-xds-client
+  template:
+    metadata:
+      labels:
+        app: tonic-xds-client
+      annotations:
+        sidecar.istio.io/inject: "false"
+    spec:
+      serviceAccountName: tonic-xds-client
+      containers:
+      - name: tonic-xds-client
+        image: greeter-server:latest
+        imagePullPolicy: Never
+        command: ["/bin/sh", "-c"]
+        args:
+        - |
+          export GRPC_XDS_BOOTSTRAP_CONFIG="{
+            \"xds_servers\": [{
+              \"server_uri\": \"http://istiod.istio-system.svc.cluster.local:15010\",
+              \"channel_creds\": [{\"type\": \"insecure\"}],
+              \"server_features\": [\"xds_v3\"]
+            }],
+            \"node\": {
+              \"id\": \"sidecar~${POD_IP}~${POD_NAME}.xds-test~xds-test.svc.cluster.local\",
+              \"cluster\": \"tonic-xds-client.xds-test\",
+              \"metadata\": {\"GENERATOR\": \"grpc\"}
+            }
+          }"
+          exec xds-channel
+        env:
+        - name: XDS_TARGET
+          value: "xds:///greeter.xds-test.svc.cluster.local:50051"
+        - name: POD_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.name
+        - name: POD_IP
+          valueFrom:
+            fieldRef:
+              fieldPath: status.podIP
