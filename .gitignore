@@ -1,4 +1,7 @@
 .DS_Store
 *.log
 istio-*/
-tonic-src/
+target/
+# Cargo.lock pins transitive deps of a moving git rev; ignored to avoid
+# lockfile churn whenever the pinned `rev` in Cargo.toml is bumped.
+Cargo.lock

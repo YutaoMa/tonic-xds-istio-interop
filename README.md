@@ -3,7 +3,7 @@
 A reviewer-runnable, Kind-based test harness for validating
 [tonic-xds](https://github.com/hyperium/tonic/tree/master/tonic-xds) against
 [Istio](https://istio.io)'s xDS control plane (istiod). Designed to be reused
-across xDS feature PRs — pin the `TONIC_REF` to the PR under test, run
+across xDS feature PRs — pin the tonic-xds git rev in `Cargo.toml`, run
 `./setup.sh && ./run-test.sh`, observe.
 
 ## What it spins up
@@ -30,16 +30,15 @@ across xDS feature PRs — pin the `TONIC_REF` to the PR under test, run
 ./teardown.sh     # delete the Kind cluster
 ```
 
-`setup.sh` clones tonic into `./tonic-src/` (gitignored) and reuses it on
-subsequent runs. The PR / branch under test is hardcoded near the top of
-`setup.sh` — edit `TONIC_REPO_URL` and `TONIC_REF` to switch:
+The tonic-xds revision under test is pinned in `Cargo.toml` as a git
+dependency. Edit the `rev` (or switch to `branch = "..."`) to point at a
+different PR or branch:
 
-```bash
-TONIC_REPO_URL="https://github.com/hyperium/tonic.git"
-TONIC_REF="refs/pull/2640/head"
+```toml
+tonic-xds = { git = "https://github.com/hyperium/tonic.git", rev = "66d77c5a", features = [...] }
 ```
 
-To force a fresh clone, `rm -rf ./tonic-src/`.
+Cargo fetches into its own cache; no separate clone step is needed.
 
 ## Current scenario: A29 mTLS (proxyless gRPC against Istio)
 

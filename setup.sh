@@ -7,19 +7,14 @@
 #   ./setup.sh                 # full setup
 #   ./setup.sh --skip-build    # skip Docker image build (reuse existing)
 #
-# To test a different PR or branch, edit TONIC_REPO_URL / TONIC_REF below.
+# The tonic-xds revision under test is pinned in `Cargo.toml`. Edit the `rev`
+# (or switch to `branch = "..."`) there to point at a different PR.
 #
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 CLUSTER_NAME="xds-test"
 ISTIO_VERSION="1.24.2"
-
-# tonic source for the greeter/channel Docker build. The tree is cloned into
-# `./tonic-src/` next to this script (gitignored) and reused across runs.
-TONIC_REPO_URL="https://github.com/hyperium/tonic.git"
-TONIC_REF="refs/pull/2640/head"
-TONIC_WORKDIR="$SCRIPT_DIR/tonic-src"
 
 info()  { printf "\033[1;34m==> %s\033[0m\n" "$*"; }
 warn()  { printf "\033[1;33mWARN: %s\033[0m\n" "$*"; }
@@ -77,20 +72,13 @@ info "Waiting for istiod to be ready..."
 kubectl -n istio-system wait deployment/istiod \
     --for=condition=available --timeout=120s
 
-# ── Build & load greeter server image ──────────────────────────────
+# ── Build & load image ─────────────────────────────────────────────
 if [[ "${1:-}" != "--skip-build" ]]; then
-    info "Fetching tonic $TONIC_REF from $TONIC_REPO_URL"
-    if [[ ! -d "$TONIC_WORKDIR/.git" ]]; then
-        git clone --filter=blob:none "$TONIC_REPO_URL" "$TONIC_WORKDIR"
-    fi
-    git -C "$TONIC_WORKDIR" fetch origin "$TONIC_REF"
-    git -C "$TONIC_WORKDIR" checkout FETCH_HEAD
-
-    info "Building greeter-server Docker image (this may take a while)..."
+    info "Building tonic-xds-client + greeter image (this may take a while)..."
     docker build \
         -t greeter-server:latest \
         -f "$SCRIPT_DIR/Dockerfile" \
-        "$TONIC_WORKDIR"
+        "$SCRIPT_DIR"
 
     info "Loading image into Kind cluster..."
     kind load docker-image greeter-server:latest --name "$CLUSTER_NAME"

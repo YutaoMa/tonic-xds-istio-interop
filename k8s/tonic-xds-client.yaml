@@ -20,10 +20,11 @@ spec:
         app: tonic-xds-client
       annotations:
         # Use Istio's proxyless-gRPC injection template. The injected
-        # pilot-agent acts as a SDS cert agent only — no iptables, no L7
-        # proxy. It writes SPIFFE credentials to
-        # /var/run/secrets/workload-spiffe-credentials/ and a generated
-        # xDS bootstrap to /etc/istio/proxy/grpc-bootstrap.json.
+        # pilot-agent runs as an SDS cert agent (no iptables, no L7 proxy)
+        # and provides:
+        #   - SPIFFE workload credentials under /var/lib/istio/data/
+        #   - generated xDS bootstrap at /etc/istio/proxy/grpc-bootstrap.json,
+        #     surfaced via the GRPC_XDS_BOOTSTRAP env var
         inject.istio.io/templates: "grpc-agent"
     spec:
       serviceAccountName: tonic-xds-client
@@ -31,47 +32,11 @@ spec:
       - name: tonic-xds-client
         image: greeter-server:latest
         imagePullPolicy: Never
-        command: ["/bin/sh", "-c"]
-        args:
-        - |
-          # Bootstrap references the SPIFFE certs Istio's grpc-agent
-          # template mounts at /var/run/secrets/workload-spiffe-credentials/.
-          # The provider instance is named "default" — istiod emits
-          # CDS `UpstreamTlsContext` referencing the same name.
-          export GRPC_XDS_BOOTSTRAP_CONFIG="{
-            \"xds_servers\": [{
-              \"server_uri\": \"http://istiod.istio-system.svc.cluster.local:15010\",
-              \"channel_creds\": [{\"type\": \"insecure\"}],
-              \"server_features\": [\"xds_v3\"]
-            }],
-            \"node\": {
-              \"id\": \"sidecar~${POD_IP}~${POD_NAME}.xds-test~xds-test.svc.cluster.local\",
-              \"cluster\": \"tonic-xds-client.xds-test\",
-              \"metadata\": {\"GENERATOR\": \"grpc\"}
-            },
-            \"certificate_providers\": {
-              \"default\": {
-                \"plugin_name\": \"file_watcher\",
-                \"config\": {
-                  \"certificate_file\":  \"/var/run/secrets/workload-spiffe-credentials/cert.pem\",
-                  \"private_key_file\":  \"/var/run/secrets/workload-spiffe-credentials/key.pem\",
-                  \"ca_certificate_file\": \"/var/run/secrets/workload-spiffe-credentials/ca.crt\",
-                  \"refresh_interval\":   \"600s\"
-                }
-              }
-            }
-          }"
-          exec xds-channel
+        command: ["tonic-xds-client"]
         env:
-        - name: RUST_LOG
-          value: "info,tonic_xds=debug,xds_client=debug"
         - name: XDS_TARGET
           value: "xds:///greeter.xds-test.svc.cluster.local:50051"
-        - name: POD_NAME
-          valueFrom:
-            fieldRef:
-              fieldPath: metadata.name
-        - name: POD_IP
-          valueFrom:
-            fieldRef:
-              fieldPath: status.podIP
+        - name: RUST_LOG
+          # Defaults set verbose tracing on tonic-xds + xds-client so
+          # `tracing::warn!`/`tracing::error!` calls surface in `kubectl logs`.
+          value: "info,tonic_xds=debug,xds_client=debug"

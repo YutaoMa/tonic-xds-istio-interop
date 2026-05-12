@@ -1,0 +1,23 @@
+[package]
+name = "tonic-xds-istio-client"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.88"
+publish = false
+
+[[bin]]
+name = "tonic-xds-client"
+path = "src/main.rs"
+
+[[bin]]
+name = "greeter_server"
+path = "src/greeter_server.rs"
+
+[dependencies]
+# tonic-xds pinned to the PR / SHA under test. Edit `rev` (or switch to
+# `branch = "..."`) to point at a different revision.
+tonic-xds = { git = "https://github.com/hyperium/tonic.git", rev = "66d77c5a", features = ["tls-ring", "testutil"] }
+tonic = { version = "0.14", features = ["channel", "server", "tls-ring"] }
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "time", "signal"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
