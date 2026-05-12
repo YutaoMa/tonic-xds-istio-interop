@@ -19,7 +19,12 @@ spec:
       labels:
         app: tonic-xds-client
       annotations:
-        sidecar.istio.io/inject: "false"
+        # Use Istio's proxyless-gRPC injection template. The injected
+        # pilot-agent acts as a SDS cert agent only — no iptables, no L7
+        # proxy. It writes SPIFFE credentials to
+        # /var/run/secrets/workload-spiffe-credentials/ and a generated
+        # xDS bootstrap to /etc/istio/proxy/grpc-bootstrap.json.
+        inject.istio.io/templates: "grpc-agent"
     spec:
       serviceAccountName: tonic-xds-client
       containers:
@@ -29,6 +34,10 @@ spec:
         command: ["/bin/sh", "-c"]
         args:
         - |
+          # Bootstrap references the SPIFFE certs Istio's grpc-agent
+          # template mounts at /var/run/secrets/workload-spiffe-credentials/.
+          # The provider instance is named "default" — istiod emits
+          # CDS `UpstreamTlsContext` referencing the same name.
           export GRPC_XDS_BOOTSTRAP_CONFIG="{
             \"xds_servers\": [{
               \"server_uri\": \"http://istiod.istio-system.svc.cluster.local:15010\",
@@ -39,10 +48,23 @@ spec:
               \"id\": \"sidecar~${POD_IP}~${POD_NAME}.xds-test~xds-test.svc.cluster.local\",
               \"cluster\": \"tonic-xds-client.xds-test\",
               \"metadata\": {\"GENERATOR\": \"grpc\"}
+            },
+            \"certificate_providers\": {
+              \"default\": {
+                \"plugin_name\": \"file_watcher\",
+                \"config\": {
+                  \"certificate_file\":  \"/var/run/secrets/workload-spiffe-credentials/cert.pem\",
+                  \"private_key_file\":  \"/var/run/secrets/workload-spiffe-credentials/key.pem\",
+                  \"ca_certificate_file\": \"/var/run/secrets/workload-spiffe-credentials/ca.crt\",
+                  \"refresh_interval\":   \"600s\"
+                }
+              }
             }
           }"
           exec xds-channel
         env:
+        - name: RUST_LOG
+          value: "info,tonic_xds=debug,xds_client=debug"
         - name: XDS_TARGET
           value: "xds:///greeter.xds-test.svc.cluster.local:50051"
         - name: POD_NAME

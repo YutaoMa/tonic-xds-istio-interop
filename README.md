@@ -41,14 +41,42 @@ TONIC_REF="refs/pull/2640/head"
 
 To force a fresh clone, `rm -rf ./tonic-src/`.
 
-## Current scenario
+## Current scenario: A29 mTLS (proxyless gRPC against Istio)
 
-The default configuration exercises the **plaintext** xDS path: tonic-xds-client
-connects to istiod on port `15010` over plaintext, receives Listener / RDS /
-CDS / EDS resources, and connects to greeter pods over plaintext gRPC.
+Exercises gRFC A29 end-to-end. The `tonic-xds-client` pod is injected with
+Istio's `grpc-agent` template, which:
 
-A29 mTLS scenario (proxyless mTLS via SPIFFE identities) is on the
-roadmap — see `TODO: scenarios/a29-mtls/` once added.
+- Runs `pilot-agent` in cert-agent-only mode (no iptables, no L7 proxy).
+- Mounts SPIFFE workload credentials at
+  `/var/run/secrets/workload-spiffe-credentials/`:
+  `cert.pem`, `key.pem`, `ca.crt`. Issued and rotated by Istio's CA.
+
+`PeerAuthentication: STRICT` on the `xds-test` namespace makes the greeter
+sidecar reject plaintext (forces inbound mTLS). For istiod to *emit*
+`transport_socket: UpstreamTlsContext` in the CDS for the greeter cluster
+(outbound side, required for proxyless gRPC clients to know they should TLS),
+an explicit `DestinationRule` with `tls.mode: ISTIO_MUTUAL` is also needed —
+`PeerAuthentication` alone is not enough on the outbound emit path. Both
+manifests are applied by `setup.sh`. The resulting `UpstreamTlsContext`
+references the bootstrap `default` provider and carries a SAN matcher for
+the greeter's SPIFFE identity (`spiffe://cluster.local/ns/xds-test/sa/greeter`).
+
+The tonic-xds bootstrap (inline in `k8s/tonic-xds-client.yaml`) configures
+a `file_watcher` certificate provider named `default` pointing at the
+Istio-mounted SPIFFE paths. `XdsServerCertVerifier` reads CA roots through
+that provider; `TlsConnector` reads identity through it too. The result is
+mTLS handshake against the greeter's sidecar, signed by Istio's CA, with
+A29 SAN matching applied.
+
+### Verifying it worked
+
+`./run-test.sh` tails the tonic-xds-client logs. Look for:
+
+- xDS bootstrap parsed, `certificate_providers` entry resolved.
+- CDS update received with `transport_socket` for the `greeter` cluster.
+- TLS handshake completes (no `CertificateError` or `ApplicationVerificationFailure`).
+- gRPC unary calls return successful `HelloReply`s from the two greeter
+  replicas, distributed by the P2C balancer.
 
 ## Layout
 
@@ -56,9 +84,11 @@ roadmap — see `TODO: scenarios/a29-mtls/` once added.
 .
 ├── Dockerfile          # Multi-stage build for greeter_server + channel
 ├── k8s/
-│   ├── namespace.yaml  # xds-test namespace with sidecar injection
-│   ├── greeter.yaml    # Greeter Deployment + Service
-│   └── tonic-xds-client.yaml # tonic-xds channel client + bootstrap inline
+│   ├── namespace.yaml           # xds-test namespace with sidecar injection
+│   ├── peer-authentication.yaml # PeerAuthentication: STRICT (inbound mTLS)
+│   ├── destination-rule.yaml    # ISTIO_MUTUAL (triggers UpstreamTlsContext in CDS)
+│   ├── greeter.yaml             # Greeter Deployment + Service
+│   └── tonic-xds-client.yaml    # tonic-xds channel client + inline bootstrap
 ├── setup.sh            # Provision Kind + Istio, build & deploy greeter
 ├── run-test.sh         # Deploy tonic-xds-client, stream its logs
 └── teardown.sh         # Delete the Kind cluster

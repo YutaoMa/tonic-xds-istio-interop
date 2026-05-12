@@ -101,6 +101,8 @@ fi
 # ── Deploy greeter service ─────────────────────────────────────────
 info "Deploying greeter service..."
 kubectl apply -f "$SCRIPT_DIR/k8s/namespace.yaml"
+kubectl apply -f "$SCRIPT_DIR/k8s/peer-authentication.yaml"
+kubectl apply -f "$SCRIPT_DIR/k8s/destination-rule.yaml"
 kubectl apply -f "$SCRIPT_DIR/k8s/greeter.yaml"
 
 info "Waiting for greeter pods to be ready..."
